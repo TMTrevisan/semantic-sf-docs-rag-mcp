@@ -1,0 +1,23 @@
+# Dependency directories
+node_modules/
+dist/
+
+# Env vars
+.env
+
+# Cache
+.cache
+.npm
+
+# DO NOT IGNORE db & pdfs for cross-machine deployment
+!rag.sqlite
+!pdfs/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
