@@ -1,0 +1,23 @@
+# These are excluded from the npm published package.
+# The private GitHub repo (via .gitignore) tracks these for personal cross-machine use.
+# Public npx users build their own database using the ingestion scripts.
+
+# Raw data — excluded from npm, tracked in private GitHub
+rag.sqlite
+pdfs/
+
+# Source TypeScript — only dist/ is needed by consumers
+src/
+*.ts
+
+# Dev & test artifacts
+node_modules/
+.env
+.cache
+*.log
+tests/
+test-*.js
+test-*.mjs
+
+# Docs artifacts
+.gitignore

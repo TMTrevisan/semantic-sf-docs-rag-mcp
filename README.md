@@ -1,53 +1,57 @@
 # Semantic Vector RAG MCP Server
 
-A privacy-first, fully local Model Context Protocol (MCP) server that empowers LLM agents to semantically search across massive offline documentation repositories via Vector math. Designed to ingest offline Salesforce architectural PDFs and HTML Knowledge Bases effortlessly, generating zero-cost multi-dimensional mathematical text mappings.
+A privacy-first, fully **local** Model Context Protocol (MCP) server that gives LLM agents semantic search over Salesforce documentation via vector embeddings. Zero API costs — all inference runs locally with `@xenova/transformers`.
 
-## Prerequisites
-- Node.js > 20.0
-- NPM
+## Quick Start (NPX — Public)
 
-## Installation
-\`\`\`bash
+> **No database included.** You build your own local vector index using the ingestion scripts below.
+
+```bash
+# 1. Create a working directory and initialize a local database
+mkdir my-sf-rag && cd my-sf-rag
+
+# 2. Drop any Salesforce PDFs you have into a pdfs/ subfolder
+mkdir pdfs
+# copy your PDFs here...
+
+# 3. Ingest PDFs into the local vector database (runs once)
+npx semantic-sf-docs-rag-mcp ingest-pdfs
+
+# 4. Wire the server into your agent (e.g. Claude Desktop)
+# Add to claude_desktop_config.json:
+```
+
+```json
+{
+  "mcpServers": {
+    "semantic-sf-rag": {
+      "command": "npx",
+      "args": ["-y", "semantic-sf-docs-rag-mcp"],
+      "cwd": "/path/to/my-sf-rag"
+    }
+  }
+}
+```
+
+The server automatically looks for `rag.sqlite` in your working directory (`cwd`).  
+Override the path with the `SF_DOCS_DB_PATH` env var if needed.
+
+---
+
+## Private Clone (Full Pre-Embedded Database)
+
+> Clone this approach to get the **full pre-built database** with all embedded PDFs — no re-ingestion needed.
+
+```bash
+git clone https://github.com/TMTrevisan/semantic-sf-docs-rag-mcp.git
+cd semantic-sf-docs-rag-mcp
 npm install
 npm run build
-\`\`\`
+```
 
-## Architecture
-- **Inference Engine**: \`@xenova/transformers\` (\`all-MiniLM-L6-v2\`) runs natively within the V8 JS engine, requiring $0 API costs.
-- **Vector Database**: \`better-sqlite3\` enhanced with the \`sqlite-vec\` C-Extension enabling blazingly fast `vec_distance_cosine()` search mechanisms perfectly matched to standard SQL rows.
+The cloned `rag.sqlite` contains all pre-computed vector embeddings. Just point Claude Desktop at it:
 
-## Loading Data into the Vector DB
-Before providing the server endpoint to your agent, you must ingest knowledge using one of the built-in pipelines. These orchestrators automatically invoke \`src/chunker.ts\` to divide monumental strings into <800 character contexts before invoking the local transformer embedding mapping:
-
-### **1. Single-Page Interactive Web Scraper**
-\`\`\`bash
-npx tsx src/ingest.ts "https://help.salesforce.com/s/articleView?id=ind.lsc_customer_engagement_get_org_ready.htm..."
-\`\`\`
-Extracts and seamlessly embeds the given web URL via Puppeteer stealth masking and Aura API interception.
-
-### **2. Local PDF Ingestion**
-\`\`\`bash
-npx tsx src/ingest-pdfs.ts
-\`\`\`
-Scans the \`pdfs/\` standard directory and iterates through massive offline developer manuals (e.g. 500+ pages), securely routing them through \`pdf-parse\` layer extraction into offline Vectors.
-
-### **3. Legacy Database Migration**
-\`\`\`bash
-npx tsx src/migrate-legacy.ts
-\`\`\`
-Transforms historical Knowledge-Base extractions mapping V1 \`documents\` and \`chunks\` joins directly into the optimized V2 mathematical space without fetching from the web.
-
-## Running the Server
-You can launch the Model Context Protocol endpoint securely across any standard LLM client configured for STDIO:
-\`\`\`bash
-node dist/index.js
-\`\`\`
-
-## Using with standard MCP Clients (e.g., Claude)
-Point your client configuration directly to the built application path:
-
-**claude_desktop_config.json**
-\`\`\`json
+```json
 {
   "mcpServers": {
     "semantic-sf-rag": {
@@ -56,14 +60,39 @@ Point your client configuration directly to the built application path:
     }
   }
 }
-\`\`\`
+```
 
-## Tool Specifications
-Provides the \`semantic_search_docs\` tool natively to your agent network.
+---
 
-**Parameters:**
-- \`query\`: A natural-language sentence or multi-part question (e.g. "How do I secure patient records using OmniStudio?").
-- \`k\`: Optional integer. The distinct number of multi-dimensional chunks you want the matching algorithm to aggregate.
+## Data Ingestion Scripts
 
-## Synchronization & Git Storage
-The embedded output structure sits within \`rag.sqlite\`. This project is intentionally configured via \`.gitignore\` to push the entire pre-embedded Vector database (and any PDF resources) up to a private Github repository. You will not need to re-execute data ingestion on alternate system configurations when cloning!
+Run any of these from your working directory to build or expand the local `rag.sqlite` database:
+
+| Command | What it does |
+|---|---|
+| `npx tsx src/ingest.ts <url>` | Scrape a single Salesforce Help page & embed it |
+| `npx tsx src/ingest-pdfs.ts` | Embed all `.pdf` files from a local `pdfs/` folder |
+| `npx tsx src/migrate-legacy.ts` | Migrate from a legacy `private-sf-doc-kb/salesforce-docs.db` |
+
+---
+
+## Architecture
+
+| Component | Technology |
+|---|---|
+| Embedding Model | `@xenova/transformers` · `all-MiniLM-L6-v2` (384-dim, local) |
+| Vector Database | `better-sqlite3` + `sqlite-vec` extension |
+| Scraping | `puppeteer-extra` + stealth plugin + Aura API fast-path |
+| MCP Protocol | `@modelcontextprotocol/sdk` over STDIO |
+
+## Environment Variables
+
+| Variable | Default | Description |
+|---|---|---|
+| `SF_DOCS_DB_PATH` | `./rag.sqlite` | Override the database file location |
+
+## How it works
+
+1. On query, the server embeds the question locally into a 384-float vector
+2. `sqlite-vec` runs `vec_distance_cosine()` kNN search over the pre-indexed chunks
+3. Top-k results (source URL + context text + similarity %) are returned as Markdown

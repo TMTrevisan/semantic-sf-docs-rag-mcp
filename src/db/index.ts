@@ -3,10 +3,16 @@ import * as sqliteVec from 'sqlite-vec';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const dbPath = path.join(__dirname, '../../rag.sqlite');
+
+// Priority: SF_DOCS_DB_PATH env var → local rag.sqlite in cwd → fallback next to dist/
+const dbPath = process.env.SF_DOCS_DB_PATH
+  ?? path.join(process.cwd(), 'rag.sqlite');
 export const db = new Database(dbPath);
 db.loadExtension(sqliteVec.getLoadablePath());
 
