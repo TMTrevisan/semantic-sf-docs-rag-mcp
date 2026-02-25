@@ -1,56 +1,24 @@
-# Semantic Vector RAG MCP Server
+# semantic-sf-docs-rag-mcp
 
-A privacy-first, fully **local** Model Context Protocol (MCP) server that gives LLM agents semantic search over Salesforce documentation via vector embeddings. Zero API costs — all inference runs locally with `@xenova/transformers`.
+[![npm](https://img.shields.io/npm/v/semantic-sf-docs-rag-mcp)](https://www.npmjs.com/package/semantic-sf-docs-rag-mcp)
 
-## Quick Start (NPX — Public)
-
-> **No database included.** You build your own local vector index using the ingestion scripts below.
-
-```bash
-# 1. Create a working directory and initialize a local database
-mkdir my-sf-rag && cd my-sf-rag
-
-# 2. Drop any Salesforce PDFs you have into a pdfs/ subfolder
-mkdir pdfs
-# copy your PDFs here...
-
-# 3. Ingest PDFs into the local vector database (runs once)
-npx semantic-sf-docs-rag-mcp ingest-pdfs
-
-# 4. Wire the server into your agent (e.g. Claude Desktop)
-# Add to claude_desktop_config.json:
-```
-
-```json
-{
-  "mcpServers": {
-    "semantic-sf-rag": {
-      "command": "npx",
-      "args": ["-y", "semantic-sf-docs-rag-mcp"],
-      "cwd": "/path/to/my-sf-rag"
-    }
-  }
-}
-```
-
-The server automatically looks for `rag.sqlite` in your working directory (`cwd`).  
-Override the path with the `SF_DOCS_DB_PATH` env var if needed.
+A privacy-first, **fully local** [Model Context Protocol](https://modelcontextprotocol.io) server for semantic search over Salesforce documentation. Uses `sqlite-vec` + `all-MiniLM-L6-v2` embeddings — $0 API costs, all inference runs on your machine.
 
 ---
 
-## Private Clone (Full Pre-Embedded Database)
+## Two Ways to Use It
 
-> Clone this approach to get the **full pre-built database** with all embedded PDFs — no re-ingestion needed.
+### 🔒 Option A — Private Clone (Pre-Built Database Included)
+
+For **personal use across machines**. Cloning gives you the full pre-embedded `rag.sqlite` plus all source PDFs — no re-ingestion needed.
 
 ```bash
 git clone https://github.com/TMTrevisan/semantic-sf-docs-rag-mcp.git
 cd semantic-sf-docs-rag-mcp
-npm install
-npm run build
+npm install && npm run build
 ```
 
-The cloned `rag.sqlite` contains all pre-computed vector embeddings. Just point Claude Desktop at it:
-
+Add to `claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
@@ -64,15 +32,44 @@ The cloned `rag.sqlite` contains all pre-computed vector embeddings. Just point 
 
 ---
 
-## Data Ingestion Scripts
+### 🌐 Option B — NPX (Public, Build Your Own DB)
 
-Run any of these from your working directory to build or expand the local `rag.sqlite` database:
+For **anyone else**. Downloads the server from npm and runs against your own local database.
 
-| Command | What it does |
-|---|---|
-| `npx tsx src/ingest.ts <url>` | Scrape a single Salesforce Help page & embed it |
-| `npx tsx src/ingest-pdfs.ts` | Embed all `.pdf` files from a local `pdfs/` folder |
-| `npx tsx src/migrate-legacy.ts` | Migrate from a legacy `private-sf-doc-kb/salesforce-docs.db` |
+**Step 1 — Create a working directory and add your PDFs:**
+```bash
+mkdir my-sf-rag && cd my-sf-rag
+mkdir pdfs
+# Drop any Salesforce PDFs into ./pdfs/
+```
+
+**Step 2 — Build your local vector database (one-time):**
+```bash
+# Embed all PDFs in ./pdfs/ into ./rag.sqlite
+npx -y semantic-sf-docs-rag-mcp-ingest-pdfs  # or run via tsx, see below
+```
+
+> For ingestion scripts, clone the repo and run:
+> ```bash
+> npx tsx src/ingest-pdfs.ts      # embed local PDFs
+> npx tsx src/ingest.ts <url>     # scrape a Salesforce Help URL
+> npx tsx src/migrate-legacy.ts   # migrate from private-sf-doc-kb
+> ```
+
+**Step 3 — Wire into Claude Desktop:**
+```json
+{
+  "mcpServers": {
+    "semantic-sf-rag": {
+      "command": "npx",
+      "args": ["-y", "semantic-sf-docs-rag-mcp"],
+      "cwd": "/absolute/path/to/my-sf-rag"
+    }
+  }
+}
+```
+
+The server looks for `rag.sqlite` in `cwd`. Override with `SF_DOCS_DB_PATH=/path/to/custom.sqlite`.
 
 ---
 
@@ -82,17 +79,14 @@ Run any of these from your working directory to build or expand the local `rag.s
 |---|---|
 | Embedding Model | `@xenova/transformers` · `all-MiniLM-L6-v2` (384-dim, local) |
 | Vector Database | `better-sqlite3` + `sqlite-vec` extension |
-| Scraping | `puppeteer-extra` + stealth plugin + Aura API fast-path |
+| Scraping | `puppeteer-extra` + stealth + Aura API fast-path |
 | MCP Protocol | `@modelcontextprotocol/sdk` over STDIO |
 
-## Environment Variables
+## Tool: `semantic_search_docs`
 
-| Variable | Default | Description |
+| Parameter | Type | Description |
 |---|---|---|
-| `SF_DOCS_DB_PATH` | `./rag.sqlite` | Override the database file location |
+| `query` | `string` | Natural language question |
+| `k` | `number?` | Number of results (default: 5, max: 20) |
 
-## How it works
-
-1. On query, the server embeds the question locally into a 384-float vector
-2. `sqlite-vec` runs `vec_distance_cosine()` kNN search over the pre-indexed chunks
-3. Top-k results (source URL + context text + similarity %) are returned as Markdown
+Returns the top-k semantically closest document chunks with source URLs and similarity percentages.
