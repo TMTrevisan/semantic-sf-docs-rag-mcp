@@ -36,7 +36,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         tools: [
             {
                 name: "semantic_search_docs",
-                description: "Perform a semantic vector search across the offline Salesforce documentation knowledge base. Use this to lookup 'how to' guides, architecture docs, or APIs. It converts your query to mathematical coordinates and finds conceptually related chunks, even if keywords don't match exactly.",
+                description: "Search the local Salesforce documentation vector database using semantic similarity (not keyword matching). This tool is provided by the 'semantic-sf-docs-rag-mcp' MCP server. Use it to find 'how to' guides, architecture docs, permission sets, APIs, and configuration steps — even when you don't know the exact keywords. Searches are local, private, and require no API calls.",
                 inputSchema: {
                     type: "object",
                     properties: {
@@ -79,10 +79,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             const results = searchStmt.all(queryEmbedding, queryEmbedding, k) as Array<{ source: string, text_chunk: string, distance: number }>;
 
             if (results.length === 0) {
+                const dbPath = process.env.SF_DOCS_DB_PATH ?? 'rag.sqlite (in server cwd)';
                 return {
                     content: [{
                         type: "text",
-                        text: "No results found. Note: If the local database is empty, the user must run the scrape/ingest scripts first to populate the vector space."
+                        text: `No results found for "${query}".\n\n**Database path checked**: \`${dbPath}\`\n\n**If the database is empty**, build it by running one of these from the repo directory:\n- \`npx tsx src/ingest-pdfs.ts\` — embed local PDFs from \`./pdfs/\`\n- \`npx tsx src/ingest.ts <url>\` — scrape a Salesforce Help URL\n- \`npx tsx src/migrate-legacy.ts\` — migrate from a legacy private-sf-doc-kb database\n\nOr clone the private repo which includes the pre-built database.`
                     }]
                 };
             }
@@ -105,8 +106,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             isError: true
         };
     } catch (e: any) {
+        const dbPath = process.env.SF_DOCS_DB_PATH ?? 'rag.sqlite (in server cwd)';
         return {
-            content: [{ type: "text", text: `Error processing request: ${e.message}` }],
+            content: [{ type: "text", text: `**[semantic-sf-rag] Error**: ${e.message}\n\nDatabase path: \`${dbPath}\`\n\nIf you see a SQLite error, the database may be missing or corrupt. Check the server logs for startup warnings.` }],
             isError: true
         };
     }

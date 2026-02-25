@@ -13,6 +13,17 @@ const __dirname = path.dirname(__filename);
 // Priority: SF_DOCS_DB_PATH env var → local rag.sqlite in cwd → fallback next to dist/
 const dbPath = process.env.SF_DOCS_DB_PATH
   ?? path.join(process.cwd(), 'rag.sqlite');
+
+const dbExists = fs.existsSync(dbPath);
+if (!dbExists) {
+  console.error(`[semantic-sf-rag] ⚠️  WARNING: No database found at: ${dbPath}`);
+  console.error(`[semantic-sf-rag]    Searches will return empty results until you ingest data.`);
+  console.error(`[semantic-sf-rag]    Run one of the following to populate the database:`);
+  console.error(`[semantic-sf-rag]      npx tsx src/ingest-pdfs.ts       # embed PDFs from ./pdfs/`);
+  console.error(`[semantic-sf-rag]      npx tsx src/ingest.ts <url>      # scrape a Salesforce Help URL`);
+  console.error(`[semantic-sf-rag]      npx tsx src/migrate-legacy.ts    # migrate from private-sf-doc-kb`);
+  console.error(`[semantic-sf-rag]    Or set SF_DOCS_DB_PATH=/path/to/rag.sqlite`);
+}
 export const db = new Database(dbPath);
 db.loadExtension(sqliteVec.getLoadablePath());
 
