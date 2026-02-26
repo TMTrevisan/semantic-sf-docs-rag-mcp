@@ -5,7 +5,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 
-dotenv.config();
+dotenv.config({ quiet: true });
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -39,4 +39,4 @@ db.exec(`
   );
 `);
 
-console.log("Database initialized with sqlite-vec extensions at:", dbPath);
+console.error("[semantic-sf-rag] Database initialized at:", dbPath);
