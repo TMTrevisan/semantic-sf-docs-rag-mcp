@@ -116,11 +116,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
 async function main() {
     console.error("[semantic-sf-rag] Starting Server...");
-
-    // Warm up the embedding model during initialization
-    console.error("[semantic-sf-rag] Warming up all-MiniLM-L6-v2 model...");
-    await getEmbedder();
-    console.error("[semantic-sf-rag] Model loaded. Server is ready.");
+    console.error("[semantic-sf-rag] Server ready. Embedding model will load on first query.");
 
     const transport = new StdioServerTransport();
     await server.connect(transport);
