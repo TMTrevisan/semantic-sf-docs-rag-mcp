@@ -16,7 +16,7 @@ const __dirname = path.dirname(__filename);
 
 // Prefer the locally bundled model so HuggingFace is never contacted.
 // Falls back to online download if the bundle is missing (e.g. fresh clone without LFS).
-const LOCAL_MODEL_PATH = path.join(__dirname, '../../models/Xenova/all-MiniLM-L6-v2');
+const LOCAL_MODEL_PATH = path.join(__dirname, '../models/Xenova/all-MiniLM-L6-v2');
 const MODEL_ID = 'Xenova/all-MiniLM-L6-v2';
 
 // Cache for the embedding pipeline to avoid reloading the model on every query
