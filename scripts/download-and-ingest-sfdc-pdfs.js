@@ -8,7 +8,7 @@
  * Expected runtime: 30-90 minutes depending on PDF sizes and system speed.
  */
 
-import { pipeline } from '@xenova/transformers';
+import { pipeline, env } from '@xenova/transformers';
 import fs from 'fs';
 import path from 'path';
 import https from 'https';
@@ -24,7 +24,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const DB_PATH = process.env.SF_DOCS_DB_PATH ?? path.join(__dirname, '../data/rag.sqlite');
-const MODEL_PATH = path.join(__dirname, '../models/Xenova/all-MiniLM-L6-v2');
+const MODELS_DIR = path.join(__dirname, '../models');
 const MODEL_ID = 'Xenova/all-MiniLM-L6-v2';
 const TMP_DIR = path.join(__dirname, '../.tmp-pdfs');
 const SF_BASE_URL = 'https://resources.docs.salesforce.com/258/latest/en-us/sfdc/pdf';
@@ -184,10 +184,16 @@ const existingSources = new Set(
     db.prepare(`SELECT DISTINCT source FROM chunks`).all().map(r => r.source)
 );
 
-// Load model
-const modelSource = fs.existsSync(MODEL_PATH) ? MODEL_PATH : MODEL_ID;
-console.log(`Loading embedding model from: ${modelSource}\n`);
-const extractor = await pipeline('feature-extraction', modelSource, { quantized: true });
+// Load model — set localModelPath so @xenova/transformers finds the bundled ONNX files
+// (passing a full path directly as model ID causes it to be treated as a HuggingFace URL)
+if (fs.existsSync(path.join(MODELS_DIR, MODEL_ID))) {
+    env.localModelPath = MODELS_DIR;
+    env.allowRemoteModels = false;
+    console.log(`Loading bundled model from: ${MODELS_DIR}/${MODEL_ID}\n`);
+} else {
+    console.log(`Bundled model not found — downloading from HuggingFace...\n`);
+}
+const extractor = await pipeline('feature-extraction', MODEL_ID, { quantized: true });
 
 const insertChunk = db.prepare(`INSERT INTO chunks (source, text_chunk) VALUES (?, ?)`);
 const insertVec = db.prepare(`INSERT INTO vec_chunks(rowid, embedding) VALUES (last_insert_rowid(), ?)`);

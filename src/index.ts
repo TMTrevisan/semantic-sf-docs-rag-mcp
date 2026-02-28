@@ -6,7 +6,7 @@ import {
     ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import { pipeline } from '@xenova/transformers';
+import { pipeline, env } from '@xenova/transformers';
 import { db } from './db/index.js';
 import { fileURLToPath } from 'url';
 import path from 'path';
@@ -15,8 +15,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Prefer the locally bundled model so HuggingFace is never contacted.
-// Falls back to online download if the bundle is missing (e.g. fresh clone without LFS).
-const LOCAL_MODEL_PATH = path.join(__dirname, '../models/Xenova/all-MiniLM-L6-v2');
+// @xenova/transformers requires env.localModelPath to be set to the base models/ dir;
+// passing a full absolute path as the model ID causes it to be treated as a HuggingFace URL.
+const MODELS_DIR = path.join(__dirname, '../models');
 const MODEL_ID = 'Xenova/all-MiniLM-L6-v2';
 
 // Cache for the embedding pipeline to avoid reloading the model on every query
@@ -25,17 +26,20 @@ let embeddingPipeline: any = null;
 async function getEmbedder() {
     if (!embeddingPipeline) {
         const { existsSync } = await import('fs');
-        const modelSource = existsSync(LOCAL_MODEL_PATH) ? LOCAL_MODEL_PATH : MODEL_ID;
-        console.error(`[semantic-sf-rag] Loading model from: ${modelSource}`);
-        embeddingPipeline = await pipeline('feature-extraction', modelSource, {
-            quantized: true,
-        });
+        if (existsSync(path.join(MODELS_DIR, MODEL_ID))) {
+            env.localModelPath = MODELS_DIR;
+            env.allowRemoteModels = false;
+            console.error(`[semantic-sf-rag] Loading bundled model from: ${MODELS_DIR}`);
+        } else {
+            console.error(`[semantic-sf-rag] Bundled model not found — downloading from HuggingFace...`);
+        }
+        embeddingPipeline = await pipeline('feature-extraction', MODEL_ID, { quantized: true });
     }
     return embeddingPipeline;
 }
 
 const server = new Server(
-    { name: "semantic-sf-rag", version: "2.0.0" },
+    { name: "semantic-sf-rag", version: "2.1.0" },
     { capabilities: { tools: {} } }
 );
 
@@ -91,13 +95,25 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             {
                 name: "add_pdf_to_index",
-                description: "Embed a local PDF file into the Salesforce documentation vector database. Use this to extend the knowledge base with additional PDFs without re-running the full ingest pipeline.",
+                description: "Embed a local PDF file into the Salesforce documentation vector database. Use this to extend the knowledge base with additional PDFs without re-running the full ingest pipeline. Skips the file if already indexed.",
                 inputSchema: {
                     type: "object",
                     properties: {
                         file_path: { type: "string", description: "Absolute path to the PDF file on your local machine." }
                     },
                     required: ["file_path"]
+                }
+            },
+            {
+                name: "delete_source",
+                description: "Remove all chunks for a specific source from the vector database. Use list_doc_sources to find the exact source identifier first.",
+                inputSchema: {
+                    type: "object",
+                    properties: {
+                        source: { type: "string", description: "The exact source URI to delete (from list_doc_sources)." },
+                        confirm: { type: "boolean", description: "Must be true to confirm deletion." }
+                    },
+                    required: ["source", "confirm"]
                 }
             }
         ]
@@ -209,16 +225,24 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 return { content: [{ type: "text", text: `File not found: ${file_path}` }], isError: true };
             }
 
+            const fileName = path.basename(file_path);
+            const localUri = `file://offline/${fileName.replace(/\s+/g, '_')}`;
+
+            // Deduplication check
+            const existing = db.prepare(`SELECT COUNT(*) as n FROM chunks WHERE source = ?`).get(localUri) as { n: number };
+            if (existing.n > 0) {
+                return {
+                    content: [{ type: "text", text: `⚠️ **${fileName}** is already indexed (${existing.n} chunks).\nSource: \`${localUri}\`\n\nTo re-index, first use \`delete_source\` then \`add_pdf_to_index\` again.` }]
+                };
+            }
+
             console.error(`[semantic-sf-rag] Ingesting PDF: ${file_path}`);
             const pdfParse = req('pdf-parse');
             const buffer = readFileSync(file_path);
             const data = await pdfParse(buffer);
 
-            const fileName = path.basename(file_path);
             const title = fileName.replace(/\.pdf$/i, '').replace(/_/g, ' ');
-            const localUri = `file://offline/${fileName.replace(/\s+/g, '_')}`;
 
-            // Simple chunking
             const CHUNK_SIZE = 800;
             const text = data.text || '';
             const chunks: string[] = [];
@@ -230,20 +254,48 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             const insertChunk = db.prepare(`INSERT INTO chunks (source, text_chunk) VALUES (?, ?)`);
             const insertVec = db.prepare(`INSERT INTO vec_chunks(rowid, embedding) VALUES (last_insert_rowid(), ?)`);
 
-            let indexed = 0;
-            for (const chunk of chunks) {
-                const out = await embedder(chunk, { pooling: 'mean', normalize: true });
-                const embedding = new Float32Array(Array.from(out.data));
-                insertChunk.run(localUri, chunk);
-                insertVec.run(embedding);
-                indexed++;
-            }
+            // Wrap in a transaction so partial failures don't leave orphaned chunks
+            const ingestTx = db.transaction(async (chunkList: string[]) => {
+                let indexed = 0;
+                for (const chunk of chunkList) {
+                    const out = await embedder(chunk, { pooling: 'mean', normalize: true });
+                    const embedding = new Float32Array(Array.from(out.data));
+                    insertChunk.run(localUri, chunk);
+                    insertVec.run(embedding);
+                    indexed++;
+                }
+                return indexed;
+            });
+
+            const indexed = await ingestTx(chunks);
 
             return {
                 content: [{
                     type: "text",
-                    text: `✅ Successfully indexed **${fileName}**\n- Chunks created: ${indexed}\n- Source ID: \`${localUri}\`\n\nYou can now search its content with \`semantic_search_docs\`.`
+                    text: `✅ Successfully indexed **${fileName}**\n- Chunks created: ${indexed}\n- Source ID: \`${localUri}\`\n\nSearch with \`semantic_search_docs\`.`
                 }]
+            };
+        }
+
+        // ── delete_source ────────────────────────────────────────────────────
+        if (name === "delete_source") {
+            const { source, confirm } = (args as { source: string, confirm: boolean });
+            if (!confirm) {
+                return { content: [{ type: "text", text: `Set confirm: true to delete source: ${source}` }], isError: true };
+            }
+            const before = db.prepare(`SELECT COUNT(*) as n FROM chunks WHERE source = ?`).get(source) as { n: number };
+            if (before.n === 0) {
+                return { content: [{ type: "text", text: `No chunks found for source: \`${source}\`` }], isError: true };
+            }
+            // Delete vectors first (rowids must match), then text chunks
+            db.prepare(`
+                DELETE FROM vec_chunks WHERE rowid IN (
+                    SELECT rowid FROM chunks WHERE source = ?
+                )
+            `).run(source);
+            db.prepare(`DELETE FROM chunks WHERE source = ?`).run(source);
+            return {
+                content: [{ type: "text", text: `🗑️ Deleted **${before.n} chunks** for source:\n\`${source}\`` }]
             };
         }
 
@@ -257,10 +309,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 });
 
+// ── --show-path CLI flag ──────────────────────────────────────────────────────
+if (process.argv.includes('--show-path')) {
+    const dbPath = process.env.SF_DOCS_DB_PATH ?? path.join(__dirname, '../data/rag.sqlite');
+    console.log(`Database: ${dbPath}`);
+    console.log(`Models:   ${path.join(__dirname, '../models')}`);
+    process.exit(0);
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
-    console.error("[semantic-sf-rag] Starting Server v2.0.0...");
+    console.error("[semantic-sf-rag] Starting Server v2.1.0...");
     console.error("[semantic-sf-rag] Embedding model will load on first query.");
     const transport = new StdioServerTransport();
     await server.connect(transport);

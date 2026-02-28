@@ -3,9 +3,6 @@ import * as sqliteVec from 'sqlite-vec';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
-import dotenv from 'dotenv';
-
-dotenv.config({ quiet: true });
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -19,10 +16,8 @@ if (!dbExists) {
   console.error(`[semantic-sf-rag] ⚠️  WARNING: No database found at: ${dbPath}`);
   console.error(`[semantic-sf-rag]    Searches will return empty results until you ingest data.`);
   console.error(`[semantic-sf-rag]    Run one of the following to populate the database:`);
-  console.error(`[semantic-sf-rag]      npx tsx src/ingest-pdfs.ts       # embed PDFs from ./pdfs/`);
-  console.error(`[semantic-sf-rag]      npx tsx src/ingest.ts <url>      # scrape a Salesforce Help URL`);
-  console.error(`[semantic-sf-rag]      npx tsx src/migrate-legacy.ts    # migrate from private-sf-doc-kb`);
-  console.error(`[semantic-sf-rag]    Or set SF_DOCS_DB_PATH=/path/to/rag.sqlite`);
+  console.error(`[semantic-sf-rag]    Run: node scripts/ingest-pdfs.js  — or drop PDFs in ./pdfs/ first.`);
+  console.error(`[semantic-sf-rag]    Override path: set SF_DOCS_DB_PATH env var.`);
 }
 export const db = new Database(dbPath);
 db.loadExtension(sqliteVec.getLoadablePath());
