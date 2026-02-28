@@ -10,9 +10,9 @@ dotenv.config({ quiet: true });
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Priority: SF_DOCS_DB_PATH env var → rag.sqlite next to the project root (from dist/db/)
+// Priority: SF_DOCS_DB_PATH env var → data/rag.sqlite bundled inside the npm package
 const dbPath = process.env.SF_DOCS_DB_PATH
-  ?? path.join(__dirname, '../../rag.sqlite');
+  ?? path.join(__dirname, '../../data/rag.sqlite');
 
 const dbExists = fs.existsSync(dbPath);
 if (!dbExists) {

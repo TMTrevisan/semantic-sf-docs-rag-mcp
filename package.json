@@ -1,6 +1,6 @@
 {
   "name": "semantic-sf-docs-rag-mcp",
-  "version": "1.0.2",
+  "version": "2.0.0",
   "description": "Privacy-first, fully local Semantic Vector RAG MCP Server for Salesforce documentation. Uses sqlite-vec + all-MiniLM-L6-v2 embeddings.",
   "main": "dist/index.js",
   "type": "module",
@@ -9,13 +9,17 @@
   },
   "files": [
     "dist/",
+    "data/",
+    "models/",
+    "scripts/",
+    "pdfs/.gitkeep",
     "README.md"
   ],
   "scripts": {
     "build": "tsc",
     "prepublishOnly": "npm run build",
-    "setup": "npm run build && node download-model.js",
-    "download-model": "node download-model.js"
+    "ingest-pdfs": "node scripts/ingest-pdfs.js",
+    "ingest-url": "node scripts/ingest-url.js"
   },
   "keywords": [
     "mcp",
