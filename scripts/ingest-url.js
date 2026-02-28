@@ -36,17 +36,24 @@ if (!url) {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function fetchUrl(targetUrl) {
+function fetchUrl(targetUrl, depth = 0) {
+    if (depth > 5) return Promise.reject(new Error('Too many redirects'));
     return new Promise((resolve, reject) => {
         const proto = targetUrl.startsWith('https') ? https : http;
         proto.get(targetUrl, {
             headers: {
-                'User-Agent': 'Mozilla/5.0 SF-Docs-RAG-Ingest/2.0',
+                'User-Agent': 'Mozilla/5.0 SF-Docs-RAG-Ingest/2.1',
                 'Accept': 'text/html,application/xhtml+xml'
             }
         }, (res) => {
             if ([301, 302, 307, 308].includes(res.statusCode)) {
-                return fetchUrl(res.headers.location).then(resolve).catch(reject);
+                // Resolve relative Location headers against the current URL
+                const location = res.headers.location || '';
+                const next = location.startsWith('http')
+                    ? location
+                    : new URL(location, targetUrl).href;
+                res.resume(); // drain socket
+                return fetchUrl(next, depth + 1).then(resolve).catch(reject);
             }
             if (res.statusCode !== 200) {
                 return reject(new Error(`HTTP ${res.statusCode} for ${targetUrl}`));
@@ -130,15 +137,6 @@ if (fs.existsSync(path.join(MODELS_DIR, MODEL_ID))) {
 }
 const extractor = await pipeline('feature-extraction', MODEL_ID, { quantized: true });
 
-// Insert with transaction
-const insertChunk = db.prepare('INSERT INTO chunks (source, text_chunk) VALUES (?, ?)');
-const insertVec = db.prepare('INSERT INTO vec_chunks(rowid, embedding) VALUES (last_insert_rowid(), ?)');
-
-const ingestTx = db.transaction((chunkList) => {
-    for (const chunk of chunkList) {
-        insertChunk.run(url, chunk);
-    }
-});
 
 process.stdout.write('🔲 Embedding');
 const embeddings = [];
@@ -149,7 +147,9 @@ for (let i = 0; i < chunks.length; i++) {
 }
 console.log(` done`);
 
-// Write in one transaction
+// Insert with transaction
+const insertChunk = db.prepare('INSERT INTO chunks (source, text_chunk) VALUES (?, ?)');
+const insertVec = db.prepare('INSERT INTO vec_chunks(rowid, embedding) VALUES (last_insert_rowid(), ?)');
 const writeTx = db.transaction(() => {
     for (let i = 0; i < chunks.length; i++) {
         insertChunk.run(url, chunks[i]);

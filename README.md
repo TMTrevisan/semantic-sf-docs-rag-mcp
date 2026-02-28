@@ -61,6 +61,7 @@ Restart Claude / reload VS Code. The `semantic_search_docs` tool is now availabl
 | `list_doc_sources` | List all indexed documents with chunk counts |
 | `get_source_content` | Retrieve all chunks from a specific document |
 | `add_pdf_to_index` | Embed a local PDF into the database at runtime |
+| `delete_source` | Remove all chunks for a source URI (use before re-indexing) |
 
 ---
 

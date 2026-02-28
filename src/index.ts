@@ -1,4 +1,21 @@
 #!/usr/bin/env node
+
+// ── Early-exit flags (must run BEFORE any DB/model initialization) ────────────
+const __showPath = process.argv.includes('--show-path');
+const __smithery = process.argv.some(a => typeof a === 'string' && a.includes('smithery'));
+
+import { fileURLToPath } from 'url';
+import path from 'path';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+if (__showPath) {
+    const dbPath = process.env.SF_DOCS_DB_PATH ?? path.join(__dirname, '../data/rag.sqlite');
+    console.log(`Database: ${dbPath}`);
+    console.log(`Models:   ${path.join(__dirname, '../models')}`);
+    process.exit(0);
+}
+
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -8,11 +25,7 @@ import {
 import { z } from "zod";
 import { pipeline, env } from '@xenova/transformers';
 import { db } from './db/index.js';
-import { fileURLToPath } from 'url';
-import path from 'path';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 // Prefer the locally bundled model so HuggingFace is never contacted.
 // @xenova/transformers requires env.localModelPath to be set to the base models/ dir;
@@ -331,13 +344,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 });
 
-// ── --show-path CLI flag ──────────────────────────────────────────────────────
-if (process.argv.includes('--show-path')) {
-    const dbPath = process.env.SF_DOCS_DB_PATH ?? path.join(__dirname, '../data/rag.sqlite');
-    console.log(`Database: ${dbPath}`);
-    console.log(`Models:   ${path.join(__dirname, '../models')}`);
-    process.exit(0);
-}
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
@@ -349,10 +355,6 @@ async function main() {
     console.error("[semantic-sf-rag] Listening on stdio transport.");
 }
 
-const isSmitheryScanning = process.argv.some(arg =>
-    typeof arg === 'string' && arg.includes('smithery')
-);
-
-if (!isSmitheryScanning) {
+if (!__smithery) {
     main().catch(console.error);
 }
