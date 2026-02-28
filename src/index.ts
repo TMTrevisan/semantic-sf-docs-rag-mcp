@@ -199,20 +199,42 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (name === "get_source_content") {
             const { source, limit } = GetSourceContentSchema.parse(args);
 
-            const rows = db.prepare(`
-                SELECT text_chunk FROM chunks 
-                WHERE source LIKE ? 
+            // Exact match first — fast (indexed) and deterministic
+            let rows = db.prepare(`
+                SELECT text_chunk FROM chunks
+                WHERE source = ?
+                ORDER BY rowid
                 LIMIT ?
-            `).all(`%${source}%`, limit) as Array<{ text_chunk: string }>;
+            `).all(source, limit) as Array<{ text_chunk: string }>;
 
+            let matchedSource = source;
+            let fuzzy = false;
+
+            // Fall back to escaped LIKE only if no exact match found
             if (rows.length === 0) {
-                return { content: [{ type: "text", text: `No chunks found for source matching: "${source}"` }] };
+                const escaped = source.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+                rows = db.prepare(`
+                    SELECT text_chunk FROM chunks
+                    WHERE source LIKE ? ESCAPE '\\'
+                    ORDER BY rowid
+                    LIMIT ?
+                `).all(`%${escaped}%`, limit) as Array<{ text_chunk: string }>;
+                fuzzy = true;
+                const src = db.prepare(`SELECT DISTINCT source FROM chunks WHERE source LIKE ? ESCAPE '\\'`).get(`%${escaped}%`) as { source: string } | undefined;
+                if (src) matchedSource = src.source;
             }
 
-            let text = `# Content from: ${source}\n\n*(${rows.length} chunks)*\n\n---\n\n`;
+            if (rows.length === 0) {
+                return { content: [{ type: "text", text: `No chunks found for source: "${source}".\n\nTip: Use \`list_doc_sources\` to get the exact source URI, then pass it here.` }] };
+            }
+
+            let text = `# Content from: ${matchedSource}\n`;
+            if (fuzzy) text += `*(fuzzy match for "${source}")*\n`;
+            text += `\n*(${rows.length} chunks)*\n\n---\n\n`;
             rows.forEach((r, i) => { text += `### Chunk ${i + 1}\n${r.text_chunk}\n\n---\n`; });
             return { content: [{ type: "text", text }] };
         }
+
 
         // ── add_pdf_to_index ─────────────────────────────────────────────────
         if (name === "add_pdf_to_index") {

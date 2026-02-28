@@ -32,6 +32,8 @@ db.exec(`
   CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(
     embedding float[384]
   );
+
+  CREATE INDEX IF NOT EXISTS idx_chunks_source ON chunks(source);
 `);
 
 console.error("[semantic-sf-rag] Database initialized at:", dbPath);
