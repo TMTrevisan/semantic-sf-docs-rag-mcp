@@ -173,10 +173,21 @@ if (!fs.existsSync(TMP_DIR)) fs.mkdirSync(TMP_DIR, { recursive: true });
 
 // Open DB
 const db = new Database(DB_PATH);
+
+// Safety check: if rag.sqlite is tiny it's a git LFS pointer, not the real DB
+const dbStat = fs.statSync(DB_PATH);
+if (dbStat.size < 1024 * 1024) {
+    console.error(`\n❌ ERROR: Database at ${DB_PATH} is only ${dbStat.size} bytes.`);
+    console.error(`   This is likely a git LFS pointer file, not the real database.`);
+    console.error(`   Run: git lfs pull   to download the actual database.`);
+    process.exit(1);
+}
+
 db.loadExtension(sqliteVec.getLoadablePath());
 db.exec(`
   CREATE TABLE IF NOT EXISTS chunks (rowid INTEGER PRIMARY KEY AUTOINCREMENT, source TEXT, text_chunk TEXT);
   CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(embedding float[384]);
+  CREATE INDEX IF NOT EXISTS idx_chunks_source ON chunks(source);
 `);
 
 // Check which sources are already indexed
@@ -236,12 +247,24 @@ for (let i = 0; i < PDFS.length; i++) {
         }
 
         process.stdout.write(`   📊 Embedding ${chunks.length} chunks...`);
+
+        // Gather ALL embeddings first (async), then write in one synchronous transaction.
+        // better-sqlite3 is a sync library — db.transaction() cannot span async calls.
+        const embeddings = [];
         for (const chunk of chunks) {
             const out = await extractor(chunk, { pooling: 'mean', normalize: true });
-            const embedding = new Float32Array(Array.from(out.data));
-            insertChunk.run(localUri, chunk);
-            insertVec.run(embedding);
+            embeddings.push(new Float32Array(Array.from(out.data)));
         }
+
+        // Write every chunk + vector for this PDF atomically
+        const writeTx = db.transaction(() => {
+            for (let j = 0; j < chunks.length; j++) {
+                insertChunk.run(localUri, chunks[j]);
+                insertVec.run(embeddings[j]);
+            }
+        });
+        writeTx();
+
         process.stdout.write(` ✅\n`);
 
         // Clean up tmp file immediately to save disk space
@@ -255,7 +278,7 @@ for (let i = 0; i < PDFS.length; i++) {
 }
 
 // Clean up tmp dir
-if (fs.existsSync(TMP_DIR)) fs.rmdirSync(TMP_DIR, { recursive: true });
+if (fs.existsSync(TMP_DIR)) fs.rmSync(TMP_DIR, { recursive: true, force: true });
 
 const elapsed = ((Date.now() - start) / 1000 / 60).toFixed(1);
 const total = db.prepare('SELECT COUNT(*) as n FROM chunks').get();

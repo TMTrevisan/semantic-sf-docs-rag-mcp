@@ -3,12 +3,20 @@
 # Public npx users build their own database using the ingestion scripts.
 
 # Raw data — excluded from npm, tracked in private GitHub
-rag.sqlite
 pdfs/
 
 # Source TypeScript — only dist/ is needed by consumers
 src/
 *.ts
+
+# Stale compiled files from deleted TypeScript sources — not needed by consumers
+dist/scraper.js
+dist/ingest.js
+dist/ingest-pdfs.js
+dist/migrate-legacy.js
+dist/test_setup.js
+dist/test-client.js
+dist/chunker.js
 
 # Dev & test artifacts
 node_modules/
@@ -19,5 +27,9 @@ tests/
 test-*.js
 test-*.mjs
 
-# Docs artifacts
+# CI / dev config
+.github/
+.gitattributes
 .gitignore
+tsconfig.json
+.tmp-pdfs/
